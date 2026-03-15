@@ -1,545 +1,395 @@
-很好，这个技术选型其实非常适合 **单机 / 小规模 Agent 平台**。
-你选的：
-
-```
-SQLite + MongoDB + MemoryCache + VectorDB
-```
-
-属于 **轻量但完整的 AI Agent 数据层架构**，很多 AI 项目都会这么做。
-
-我帮你重新设计一份 **Python OpenClaw 架构设计文档（数据层优化版）**。
-
----
-
-# 一、数据库选型建议
-
-你提出：
-
-```
-SQLite
-MongoDB
-MemoryCache
-VectorDB
-```
-
-推荐最终组合：
-
-| 类型    | 技术          | 用途                 |
-| ----- | ----------- | ------------------ |
-| 关系数据库 | SQLite      | 配置 / 任务 / 用户       |
-| 文档数据库 | MongoDB     | Agent会话 / Tool日志   |
-| 缓存    | MemoryCache | Prompt缓存 / Agent状态 |
-| 向量数据库 | ChromaDB    | RAG / 记忆           |
-
-最终架构：
-
-```
-SQLite
-MongoDB
-ChromaDB
-MemoryCache
-```
-
-原因：
-
-* SQLite：轻量，单机性能非常好
-* MongoDB：适合 AI 非结构化数据
-* ChromaDB：最简单向量库
-* MemoryCache：极低延迟
-
----
-
-# 二、为什么推荐 ChromaDB（向量数据库）
-
-推荐： **ChromaDB**
-
-优点：
-
-```
-极其简单
-Python原生
-无需部署
-嵌入式
-```
-
-安装：
-
-```bash
-pip install chromadb
-```
-
-示例：
-
-```python
-import chromadb
-
-client = chromadb.Client()
-
-collection = client.create_collection("memory")
-
-collection.add(
-    documents=["AI Agent architecture"],
-    ids=["1"]
-)
-
-results = collection.query(
-    query_texts=["agent design"],
-    n_results=1
-)
-```
-
-优点：
-
-```
-零运维
-嵌入式
-适合单机
-```
-
-非常适合你的项目。
-
----
-
-# 三、系统整体架构
-
-重新设计后的 **Python OpenClaw 架构**：
-
-```
-                    +----------------------+
-                    |        Channel       |
-                    | Web / API / Slack    |
-                    +----------+-----------+
-                               |
-                               v
-                         +-----------+
-                         | FastAPI   |
-                         | API Layer |
-                         +-----------+
-                               |
-                               v
-                     +------------------+
-                     |   Agent Runtime  |
-                     +------------------+
-                     |                  |
-               +-----+------+   +-------+------+
-               |   Planner   |   |   Executor   |
-               +-----+------+   +-------+------+
-                     |                  |
-                     v                  v
-               +-----------+      +-----------+
-               | Tool Hub  |      |  Skills   |
-               +-----------+      +-----------+
-                     |
-                     v
-               +-----------+
-               |  Memory   |
-               +-----------+
-                     |
-      +--------------+--------------+
-      |              |              |
-      v              v              v
-   SQLite        MongoDB         ChromaDB
-(config)        (logs)          (vector)
-                     |
-                     v
-                MemoryCache
-```
-
----
-
-# 四、数据职责划分
-
-这是非常重要的设计。
-
-### 1 SQLite（结构化数据）
-
-存储：
-
-```
-用户
-任务
-Agent配置
-工具配置
-系统设置
-```
-
-示例表：
-
-```
-users
-agents
-tasks
-tool_configs
-system_config
-```
-
-SQLite 优势：
-
-```
-极快
-嵌入式
-无运维
-```
-
----
-
-### 2 MongoDB（非结构化数据）
-
-存储：
-
-```
-Agent conversation
-Tool logs
-Agent execution history
-Workflow logs
-```
-
-示例：
-
-```json
-{
-  "session_id": "123",
-  "messages": [
-    {"role": "user", "content": "写一篇AI文章"},
-    {"role": "assistant", "content": "..."}
-  ]
-}
-```
-
-MongoDB优势：
-
-```
-JSON原生
-灵活
-适合AI数据
-```
-
----
-
-### 3 ChromaDB（向量数据库）
-
-存储：
-
-```
-长期记忆
-知识库
-RAG文档
-Agent经验
-```
-
-例如：
-
-```
-document
-embedding
-metadata
-```
-
-示例：
-
-```
-id: doc1
-content: AI Agent architecture design
-metadata: {"type":"knowledge"}
-```
-
----
-
-### 4 MemoryCache（内存缓存）
-
-推荐：
-
-```
-cachetools
-```
-
-安装：
-
-```
-pip install cachetools
-```
-
-使用：
-
-```python
-from cachetools import TTLCache
-
-cache = TTLCache(maxsize=1000, ttl=300)
-
-cache["prompt"] = "result"
-```
-
-存储：
-
-```
-Prompt缓存
-Agent上下文
-Tool结果
-```
-
-特点：
-
-```
-纳秒级访问
-```
-
----
-
-# 五、完整项目结构
-
-推荐项目结构：
-
-```
-openclaw-python
-│
-├── app
-│
-│   ├── api
-│   │   └── routes.py
-│
-│   ├── agent
-│   │   ├── runtime
-│   │   ├── planner
-│   │   ├── executor
-│   │   └── context
-│
-│   ├── tools
-│   │
-│   ├── skills
-│   │
-│   ├── memory
-│   │   ├── session_memory.py
-│   │   ├── vector_memory.py
-│   │   └── cache_memory.py
-│
-│   ├── database
-│   │   ├── sqlite.py
-│   │   ├── mongo.py
-│   │   └── vector_db.py
-│
-│   ├── llm
-│   │
-│   └── scheduler
-│
-├── tests
-├── requirements.txt
-└── main.py
-```
-
----
-
-# 六、Memory系统设计
-
-Memory分四层：
-
-```
-Memory
-├── Context Memory
-├── Session Memory
-├── Knowledge Memory
-└── Cache Memory
-```
-
-### Context Memory
-
-```
-当前对话
-```
-
-来源：
-
-```
-MemoryCache
-```
-
----
-
-### Session Memory
-
-```
-聊天历史
-```
-
-存储：
-
-```
-MongoDB
-```
-
----
-
-### Knowledge Memory
-
-```
-长期知识
-```
-
-存储：
-
-```
-ChromaDB
-```
-
----
-
-### Cache Memory
-
-```
-Prompt缓存
-Tool缓存
-```
-
-存储：
-
-```
-MemoryCache
-```
-
----
-
-# 七、Agent执行流程
-
-```
-User Request
-     |
-     v
-FastAPI
-     |
-     v
-Agent Runtime
-     |
-     v
-Planner
-     |
-     v
-Executor
-     |
-     v
-Tool
-     |
-     v
-Memory
-     |
-     +---- SQLite (config)
-     |
-     +---- MongoDB (logs)
-     |
-     +---- ChromaDB (vector)
-     |
-     +---- MemoryCache
-```
-
----
-
-# 八、requirements.txt 推荐
+# FastApiAdmin - Backend
+
+一个基于 FastAPI 框架构建企业级后端架构解决方案，为前端 Vue3 管理系统提供完整的 API 服务支持。
+
+## 🚀 项目特性
+
+- **现代技术栈**: FastAPI + SQLAlchemy 2.0 + Pydantic 2.x
+- **多数据库支持**: MySQL、PostgreSQL、SQLite
+- **异步架构**: 支持高并发异步数据库操作
+- **权限管理**: 完整的 RBAC 权限控制体系
+- **任务调度**: 基于 APScheduler 的定时任务系统
+- **日志监控**: 完整的操作日志和系统监控
+- **代码生成**: 智能化代码生成工具
+- **AI 集成**: 支持 OpenAI 大模型调用
+- **云存储**: 支持阿里云 OSS 对象存储
+
+## 🏗️ 系统架构
+
+### 技术栈
+
+| 技术 | 版本 | 说明 |
+|------|------|------|
+| FastAPI | 0.115.2 | 现代 Web 框架 |
+| SQLAlchemy | 2.0.36 | ORM 框架 |
+| Alembic | 1.15.1 | 数据库迁移工具 |
+| Pydantic | 2.x | 数据验证与序列化 |
+| APScheduler | 3.11.0 | 定时任务调度 |
+| Redis | 5.2.1 | 缓存与会话存储 |
+| Uvicorn | 0.30.6 | ASGI 服务器 |
+| Python | 3.10+ | 运行环境 |
+
+### 架构设计
 
 ```txt
-fastapi
-uvicorn
-
-# database
-sqlalchemy
-pymongo
-
-# vector
-chromadb
-
-# cache
-cachetools
-
-# ai
-openai
-tiktoken
-
-# utils
-pydantic
-loguru
-python-dotenv
+📦 分层架构 (MVC)
+├── 🎯 Controller   # 控制器层 - 处理HTTP请求
+├── 🏢 Service      # 业务层 - 核心业务逻辑
+├── 💾 CRUD         # 数据访问层 - 数据库操作
+└── 📊 Model        # 模型层 - 数据模型定义
 ```
+
+## 📁 项目结构
+
+```txt
+FastapiAdmin/backend/
+├── 📁 app/                     # 项目核心代码
+│   ├── 💾 alembic/             # 数据库迁移管理
+│   ├── 🌐 api/                 # API 接口模块
+│   │   └── v1/               # API v1 版本
+│   │       ├── module_system/  # 系统管理模块
+│   │       ├── module_monitor/ # 系统监控模块
+│   │       ├── module_ai/      # AI 功能模块
+│   │       └── module_*/       # 其他业务模块
+│   ├── 📄 common/              # 公共组件（常量、枚举、响应封装）
+│   ├── ⚙️ config/              # 项目配置文件
+│   ├── 💖 core/                # 核心模块（数据库、中间件、安全）
+│   ├── ⏰ module_task/         # 定时任务模块
+│   ├── 🔌 plugin/              # 插件模块
+│   ├── 📜 scripts/             # 初始化脚本和数据
+│   └── 🛠️ utils/               # 工具类（验证码、文件上传等）
+├── 🌍 env/                     # 环境配置文件
+├── 📄 logs/                    # 日志输出目录
+├── 📊 sql/                     # SQL 初始化脚本
+├── 📷 static/                  # 静态资源文件
+├── 🚀 main.py                  # 项目启动入口
+├── 📄 alembic.ini              # Alembic 迁移配置
+├── 📎 requirements.txt         # Python 依赖包
+└── 📝 README.md                # 项目说明文档
+```
+
+### 模块设计
+
+每个业务模块采用统一的分层结构：
+
+```txt
+module_*/
+├── controller.py    # 控制器 - HTTP 请求处理
+├── service.py       # 服务层 - 业务逻辑处理
+├── crud.py          # 数据层 - 数据库操作
+├── model.py         # ORM 模型 - 数据库表定义
+├── schema.py        # Pydantic 模型 - 数据验证
+└── param.py         # 参数模型 - 请求参数
+```
+
+## 🚀 快速开始
+
+### 环境要求
+
+- **Python**: 3.10+
+- **数据库**: MySQL 8.0+ / PostgreSQL 13+ / SQLite 3.x
+- **Redis**: 6.0+ (可选)
+
+#### 1. 数据库初始化
+
+```bash
+# 生成迁移文件（仅首次或模型变更时）
+python main.py revision  --env=dev(不加默认为dev)
+
+# 应用数据库迁移
+python main.py upgrade --env=dev(不加默认为dev)
+
+# 如果是uv管理管理python则是
+uv run main.py revision  --env=dev(不加默认为dev)
+uv run main.py upgrade --env=dev(不加默认为dev)
+```
+
+#### 2. 启动服务
+
+```bash
+# 创建虚拟环境
+python -m venv .venv
+# 激活虚拟环境
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
+
+# 如果是uv管理管理python则是
+uv venv (默认创建.venv)
+
+
+# 安装依赖
+pip install -r requirements.txt
+# 如果是uv管理管理python则是
+uv add -r requirements.txt
+或
+uv sync
+
+# 开发环境启动
+python main.py run --env=dev (不加默认为dev)
+
+# 生产环境启动
+python main.py run --env=prod (不加默认为dev)
+
+# 如果是uv管理管理python则是
+uv run main.py run --env=dev (不加默认为dev)
+uv run main.py run --env=prod (不加默认为dev)
+```
+
+#### 3.代码格式化
+
+```bash
+# 检查当前目录所有 Python 文件
+ruff check
+# 检查并自动修复问题
+ruff check --fix
+# 监听文件变化并重新检查
+ruff check --watch
+
+# 如果是uv管理管理python则是
+uv run ruff check
+uv run ruff check --fix
+uv run ruff check --watch
+```
+
+## 📜 相关链接
+
+- **FastAPI 官方文档**: [https://fastapi.tiangolo.com/](https://fastapi.tiangolo.com/)
+- **SQLAlchemy 文档**: [https://docs.sqlalchemy.org/](https://docs.sqlalchemy.org/)
+- **Pydantic 文档**: [https://pydantic-docs.helpmanual.io/](https://pydantic-docs.helpmanual.io/)
+
+## 💬 支持与反馈
+
+如果您在使用过程中遇到问题或有任何建议，请通过以下方式联系我们：
+
+- 🐛 **Bug 报告**: 请在 GitHub Issues 中提交
+- 💡 **功能建议**: 请在 GitHub Discussions 中讨论
+- 💬 **技术交流**: 欢迎参与项目讨论
 
 ---
 
-# 九、性能分析
-
-这个架构在单机性能：
-
-| 组件          | QPS   |
-| ----------- | ----- |
-| SQLite      | 5k+   |
-| MongoDB     | 10k+  |
-| ChromaDB    | 3k+   |
-| MemoryCache | 100k+ |
-
-对于：
-
-```
-AI Agent 平台
-内部工具
-个人 SaaS
-```
-
-完全足够。
+❤️ **感谢您的关注和支持！** 如果这个项目对您有帮助，请给我们一个 ⭐️ Star！
 
 ---
 
-# 十、未来升级路线
+## mysql 全类型测试表
 
-如果项目变大，可以升级：
+```sql
+CREATE TABLE `gen_all_types_demo` (
+  `tinyint_field` TINYINT NOT NULL COMMENT 'TINYINT类型',
+  `tinyint_unsigned_field` TINYINT UNSIGNED NOT NULL COMMENT 'TINYINT UNSIGNED类型',
+  `smallint_field` SMALLINT NOT NULL COMMENT 'SMALLINT类型',
+  `smallint_unsigned_field` SMALLINT UNSIGNED NOT NULL COMMENT 'SMALLINT UNSIGNED类型',
+  `mediumint_field` MEDIUMINT NOT NULL COMMENT 'MEDIUMINT类型',
+  `mediumint_unsigned_field` MEDIUMINT UNSIGNED NOT NULL COMMENT 'MEDIUMINT UNSIGNED类型',
+  `int_field` INT NOT NULL COMMENT 'INT类型',
+  `int_unsigned_field` INT UNSIGNED NOT NULL COMMENT 'INT UNSIGNED类型',
+  `bigint_field` BIGINT NOT NULL COMMENT 'BIGINT类型',
+  `bigint_unsigned_field` BIGINT UNSIGNED NOT NULL COMMENT 'BIGINT UNSIGNED类型',
+  `float_field` FLOAT NOT NULL COMMENT 'FLOAT类型',
+  `double_field` DOUBLE NOT NULL COMMENT 'DOUBLE类型',
+  `decimal_field` DECIMAL(10,2) NOT NULL COMMENT 'DECIMAL类型',
+  `decimal_unsigned_field` DECIMAL(10,2) UNSIGNED NOT NULL COMMENT 'DECIMAL UNSIGNED类型',
+  `numeric_field` NUMERIC(10,2) NOT NULL COMMENT 'NUMERIC类型',
+  `bit_field` BIT(8) NOT NULL COMMENT 'BIT类型',
+  `char_field` CHAR(32) NOT NULL COMMENT 'CHAR类型',
+  `varchar_field` VARCHAR(255) NOT NULL COMMENT 'VARCHAR类型',
+  `binary_field` BINARY(32) NOT NULL COMMENT 'BINARY类型',
+  `varbinary_field` VARBINARY(255) NOT NULL COMMENT 'VARBINARY类型',
+  `tinyblob_field` TINYBLOB COMMENT 'TINYBLOB类型',
+  `blob_field` BLOB COMMENT 'BLOB类型',
+  `mediumblob_field` MEDIUMBLOB COMMENT 'MEDIUMBLOB类型',
+  `longblob_field` LONGBLOB COMMENT 'LONGBLOB类型',
+  `tinytext_field` TINYTEXT COMMENT 'TINYTEXT类型',
+  `text_field` TEXT COMMENT 'TEXT类型',
+  `mediumtext_field` MEDIUMTEXT COMMENT 'MEDIUMTEXT类型',
+  `longtext_field` LONGTEXT COMMENT 'LONGTEXT类型',
+  `enum_field` ENUM('active','inactive','pending') NOT NULL DEFAULT 'pending' COMMENT 'ENUM类型',
+  `set_field` SET('read','write','execute') NOT NULL DEFAULT '' COMMENT 'SET类型',
+  `date_field` DATE NOT NULL COMMENT 'DATE类型',
+  `time_field` TIME NOT NULL COMMENT 'TIME类型',
+  `datetime_field` DATETIME NOT NULL COMMENT 'DATETIME类型',
+  `timestamp_field` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'TIMESTAMP类型',
+  `year_field` YEAR NOT NULL COMMENT 'YEAR类型',
+  `json_field` JSON COMMENT 'JSON类型',
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `uuid` VARCHAR(64) NOT NULL COMMENT 'UUID全局唯一标识',
+  `status` VARCHAR(10) NOT NULL DEFAULT '0' COMMENT '是否启用(0:启用 1:禁用)',
+  `description` TEXT COMMENT '备注/描述',
+  `created_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `created_id` BIGINT DEFAULT NULL COMMENT '创建人ID',
+  `updated_id` BIGINT DEFAULT NULL COMMENT '更新人ID',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uuid` (`uuid`),
+  KEY `ix_gen_all_types_demo_created_id` (`created_id`),
+  KEY `ix_gen_all_types_demo_updated_id` (`updated_id`),
+  KEY `ix_gen_all_types_demo_status` (`status`),
+  KEY `ix_gen_all_types_demo_created_time` (`created_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全类型测试表';
+```
 
-| 当前          | 升级         |
-| ----------- | ---------- |
-| SQLite      | PostgreSQL |
-| MemoryCache | Redis      |
-| ChromaDB    | Milvus     |
-| 单机          | Kubernetes |
+## postgresql 全类型测试表
 
----
+```sql
+-- PostgreSQL 全类型测试表
+CREATE TABLE gen_all_types_demo (
+  -- 整数类型
+  smallint_field SMALLINT NOT NULL,
+  integer_field INTEGER NOT NULL,
+  bigint_field BIGINT NOT NULL,
 
-# 十一、最终架构总结
+  -- 浮点类型
+  real_field REAL NOT NULL,
+  double_precision_field DOUBLE PRECISION NOT NULL,
+  numeric_field NUMERIC(10,2) NOT NULL,
+  decimal_field DECIMAL(10,2) NOT NULL,
 
-你的系统最终是：
+  -- 字符串类型
+  char_field CHAR(32) NOT NULL,
+  varchar_field VARCHAR(255) NOT NULL,
+  text_field TEXT NOT NULL,
+
+  -- 二进制类型
+  bytea_field BYTEA,
+
+  -- 日期时间类型
+  date_field DATE NOT NULL,
+  time_field TIME NOT NULL,
+  time_with_tz_field TIMESTAMP WITH TIME ZONE NOT NULL,
+  time_without_tz_field TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+  timestamp_field TIMESTAMP NOT NULL,
+  timestamp_with_tz_field TIMESTAMP WITH TIME ZONE NOT NULL,
+  timestamp_without_tz_field TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+  interval_field INTERVAL,
+
+  -- 布尔类型
+  boolean_field BOOLEAN NOT NULL,
+
+  -- JSON类型
+  json_field JSON,
+  jsonb_field JSONB,
+
+  -- 其他类型
+  uuid_field UUID,
+  inet_field INET,
+  cidr_field CIDR,
+  macaddr_field MACADDR,
+
+  -- 几何类型
+  point_field POINT,
+  line_field LINE,
+  lseg_field LSEG,
+  box_field BOX,
+  path_field PATH,
+  polygon_field POLYGON,
+  circle_field CIRCLE,
+
+  -- 位类型
+  bit_field BIT(8) NOT NULL,
+  bit_varying_field VARBIT(8) NOT NULL,
+
+  -- 文本搜索类型
+  tsvector_field TSVECTOR,
+  tsquery_field TSQUERY,
+
+  -- XML类型
+  xml_field XML,
+
+  -- 数组类型
+  array_field INTEGER[],
+
+  -- 范围类型
+  range_field INT4RANGE,
+
+  -- 货币类型
+  money_field MONEY,
+
+  -- 对象标识符类型
+  oid_field OID,
+  regproc_field REGPROC,
+  regclass_field REGCLASS,
+  regtype_field REGTYPE,
+  regrole_field REGROLE,
+  regnamespace_field REGNAMESPACE,
+
+  -- 常用字段
+  id BIGSERIAL PRIMARY KEY,
+  uuid VARCHAR(64) NOT NULL UNIQUE,
+  status VARCHAR(10) NOT NULL DEFAULT '0',
+  description TEXT,
+  created_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_id BIGINT,
+  updated_id BIGINT
+);
 
 ```
-Python OpenClaw
-│
-├── FastAPI API
-├── Agent Runtime
-├── Planner
-├── Executor
-├── Tool Hub
-├── Skill System
-├── Memory System
-│
-├── SQLite
-├── MongoDB
-├── ChromaDB
-└── MemoryCache
-```
 
-这是一个 **非常合理的 AI Agent 架构**。
+## mysql类型
 
----
+INT
+VARCHAR
+CHAR
+DATETIME
+TIMESTAMP
+DATE
+BIT
+FLOAT
+DOUBLE
+DECIMAL
+BIGINT
+TEXT
+JSON
+BLOB
+BINARY
+ENUM
+SET
+TINYINT
+SMALLINT
+MEDIUMINT
+TIME
+YEAR
+VARBINARY
+TINYBLOB
+MEDIUMBLOB
+LONGBLOB
+TINYTEXT
+MEDIUMTEXT
+LONGTEXT
+GEOMETRY
+POINT
+LINESTRING
+POLYGON
+MULTIPOINT
+MULTILINESTRING
+MULTIPOLYGON
+GEOMETRYCOLLECTION
 
-💡 最后给你一个 **非常关键的建议**：
+## pg类型
 
-如果你真的想 **重写 OpenClaw**，一定要加一个模块：
-
-```
-Tool Registry
-```
-
-否则 Tool 会失控。
-
----
-
-如果你愿意，我可以继续帮你做一件非常有价值的事：
-
-我可以帮你设计一份 **《Python OpenClaw 完整系统架构（企业级）》**，包括：
-
-* Agent Runtime 设计
-* Tool 插件系统
-* Workflow Engine
-* 多 Agent 协作
-* Skill Marketplace
-
-这套架构基本就是 **AI Agent 平台的标准设计**。
+INTEGER
+VARCHAR
+CHAR
+TIMESTAMP
+DATE
+BOOLEAN
+FLOAT
+TEXT
+JSON
+BLOB
+SMALLINT
+BIGINT
+REAL
+DOUBLE PRECISION
+BYTEA
+XML
+UUID
+ARRAY
+NUMERIC
+MONEY
+INTERVAL
+CIDR
+INET
+MACADDR
